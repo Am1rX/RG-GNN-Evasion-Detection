@@ -1,1 +1,1 @@
-# TH-GNN-Evasion-Detection
+# RG-GNN-Evasion-Detection
