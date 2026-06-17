@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Nozari"
+    given-names: "AmirMahdi"
+    orcid: "https://orcid.org/0000-0000-0000-0000" # اگر ORCID دارید اینجا بگذارید
+title: "RG-GNN: A Reassembly-Graph Neural Network for Robust Detection of Advanced Fragmentation Evasion in Enterprise Networks"
+version: 1.0.0
+date-released: 2026-05-24
