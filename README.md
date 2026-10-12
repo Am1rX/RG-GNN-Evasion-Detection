@@ -1,40 +1,65 @@
 # RG-GNN: Reassembly-Graph Neural Network
 
-This repository contains the official PyTorch implementation and the dataset generation scripts for the **RG-GNN** architecture, as presented in our paper: 
-*"RG-GNN: A Reassembly-Graph Neural Network for Robust Detection of Advanced Fragmentation Evasion in Enterprise Networks"*.
+PyTorch Geometric implementation of a packet-level classifier for fragmentation-evasion research. It builds graph edges between fragments of the same IP datagram and evaluates a residual GraphSAGE model on labeled packet data.
 
-## Overview
-Traditional Intrusion Detection Systems (IDS) often fail to detect advanced evasion techniques, such as **Tiny Fragmentation** and **TCP MSS Clamping**, because they process packets primarily as linear sequential streams, making them vulnerable to resource exhaustion and oversmoothing. 
+> Research prototype: the repository does not provide a live IDS, a reproducible benchmark report, or measured production throughput. Treat reported metrics as results to reproduce, not deployment guarantees.
 
-RG-GNN addresses this by explicitly modeling the **Reassembly Relations** among fragmented packets. Instead of deep payload inspection or temporal chaining, RG-GNN:
-1. Models individual packets as nodes with lightweight header features.
-2. Links fragments of a common datagram through reassembly edges (matching Source IP, Destination IP, and IP Identification in ascending offset order).
+## Pipeline
 
-By processing these relationships through stacked GraphSAGE layers with a residual connection, RG-GNN successfully isolates the structural signature of evasion attacks without degrading live network throughput (designed for out-of-band SPAN monitoring).
-
-## Repository Structure
-
-Based on the current repository tree, the files are organized as follows:
-
-- `data/`
-  - `202601311400.pcap`: Sample of normal baseline backbone traffic (from MAWI Working Group).
-  - `thgnn_evaluation_dataset.pcap`: The synthesized evaluation dataset containing uniformly injected Tiny Fragmentation and TCP MSS Clamping attacks.
-  - `ground_truth.csv` & `dataset.csv`: Labels and extracted tabular features mapped to the captured frames.
-- `graph_builder.py`: Script to extract lightweight packet features (Frame Length, IP Offset, IP MF Flag, TCP MSS, TCP Seq) and construct the Reassembly-Graph.
-- `train.py`: Main execution script to train the RG-GNN model, apply the 40% Gaussian feature-noise stress test, and evaluate macro-level metrics (F1-score, PR-AUC).
-- `th_utils.py`: Helper functions and utilities for data processing, metrics calculation, and evaluation.
-- `CITATION.cff`: Citation information for referencing this project.
-- `requirements.txt`: Python dependencies required to run the project.
-
-## Installation
-Ensure you have Python 3.8+ installed. It is recommended to use a virtual environment. Install the required dependencies using:
-
-```bash
-pip install -r requirements.txt
+```mermaid
+flowchart LR
+    A["data/dataset.csv<br/>packet features"] --> B["graph_builder.py<br/>packet nodes and edges"]
+    B --> C["reassembly_only()<br/>retain fragment edges"]
+    C --> D["Residual GraphSAGE<br/>two layers"]
+    G["data/ground_truth.csv<br/>labels by frame.number"] --> E["train.py<br/>60/10/30 ordered split"]
+    D --> E
+    E --> F["Validation threshold<br/>test metrics over five seeds"]
 ```
-## Usage
-```bash
-python train.py
-```
-## Note on Ablation Study
-As demonstrated in the paper, incorporating temporal (flow-adjacency) edges degrades performance through oversmoothing. Therefore, this final implementation strictly utilizes Reassembly Edges to achieve an F1-score of ~0.98 under heavily imbalanced conditions.
+
+The graph builder creates both flow-adjacency (`temporal`) and fragment-reassembly (`reassembly`) edges. The proposed model disables the temporal edges before training. Packet features are frame length, fragment offset, more-fragments flag, TCP MSS value, and TCP sequence number. Fragments are grouped by source IP, destination IP, and IP ID, with a five-second grouping window.
+
+## Repository contents
+
+| Path | Purpose |
+| --- | --- |
+| [`graph_builder.py`](graph_builder.py) | Load the feature CSV and create packet nodes and graph edges. |
+| [`th_utils.py`](th_utils.py) | Join labels, split and scale data, train models, and compute metrics. |
+| [`train.py`](train.py) | Run standard and feature-noise experiments, then save model weights. |
+| [`Data.rar`](Data.rar) | Dataset archive; extract its contents before running the training script. |
+| [`CITATION.cff`](CITATION.cff) | Software citation metadata. |
+
+## Reproduce an experiment
+
+1. Create a Python environment with a version supported by the dependencies on your system. Install the packages listed in [`requirements.txt`](requirements.txt):
+
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+2. Extract `Data.rar`. Arrange the extracted files so that these paths exist relative to the repository root:
+
+   ```text
+   data/dataset.csv
+   data/ground_truth.csv
+   ```
+
+   `th_utils.py` reads these two CSV files directly. The PCAP paths in that module are defined as constants but are not read by `train.py`. If the archive extracts into another directory, move or copy the CSV files to the paths above.
+
+3. Run from the repository root:
+
+   ```bash
+   python train.py
+   ```
+
+The script performs a 60%/10%/30% split ordered by `frame.number`, fits a `RobustScaler` on the training partition, tunes the decision threshold on validation labels, and prints test metrics across five seeds. It then repeats the experiment with Gaussian feature noise (`std=0.4`) applied to all packet features and writes `proposed_model_final.pth` from the last run. The checkpoint is overwritten on subsequent runs.
+
+## Data and evaluation notes
+
+- `data/dataset.csv` needs the feature columns listed in `graph_builder.py`, source/destination IPs, IP ID, and `frame.number`; `data/ground_truth.csv` needs `frame.number` and `is_evasion`.
+- The graph is built before the split. This is a **transductive** evaluation: training can use graph structure that includes validation and test nodes, although the loss uses training labels only. A separate held-out graph is needed to measure inductive generalization.
+- The noise experiment perturbs training, validation, and test features. It is not a test-only corruption benchmark.
+- No metric table, raw experiment log, dataset-generation script, or live throughput measurement is included here. Publish those artifacts and dataset provenance before presenting a numeric result as independently reproducible.
+
+## Citation and license
+
+Use [`CITATION.cff`](CITATION.cff) to cite the software. See [`LICENSE`](LICENSE) for the MIT license. A paper title in citation metadata is not a link to a published paper; add a DOI or preprint URL when one is available.
